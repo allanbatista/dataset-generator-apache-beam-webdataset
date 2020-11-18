@@ -33,6 +33,10 @@ public class Image implements Serializable {
         return new Image(ImageHelpers.resize(bytes, width, height), format);
     }
 
+    public Image resizeCrop(int width, int height) throws Exception {
+        return new Image(ImageHelpers.resizeCrop(bytes, width, height), format);
+    }
+
     public void throwIfImageNotValid() throws Exception {
         ImageHelpers.throwIfImageNotValid(bytes, format);
     }

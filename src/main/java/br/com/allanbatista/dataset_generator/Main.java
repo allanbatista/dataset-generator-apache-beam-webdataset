@@ -61,21 +61,33 @@ public class Main {
         @Default.Integer(224)
         Integer getImageSize();
         void setImageSize(Integer imageSize);
+
+        @Description("Image resize type: \"black\" or \"center-crop\"")
+        @Default.String("black")
+        String getImageResizeType();
+        void setImageResizeType(String imageResizeType);
     }
 
     public static class ResizeAndCropImageFn extends DoFn<Record, Record> {
-        private int width;
-        private int height;
+        private int size;
+        private String resizeType;
 
-        public ResizeAndCropImageFn(int size) {
-            this.width = size;
-            this.height = size;
+        public ResizeAndCropImageFn(int size, String resizeType) {
+            this.size = size;
+            this.resizeType = resizeType;
         }
 
         @ProcessElement
         public void processElement(@Element Record record, OutputReceiver<Record> out) throws Exception {
             Record result = new Record(record);
-            result.image = result.image.resize(width, height).encodeToJPEG();
+
+            if(resizeType.equals("center-crop")) {
+                result.image = result.image.resizeCrop(size, size);
+            } else {
+                result.image = result.image.resize(size, size);
+            }
+
+            result.image = result.image.encodeToJPEG();
             out.output(result);
         }
     }
@@ -139,18 +151,18 @@ public class Main {
             "testPath=" + testPath
         );
 
-        String sql = "SELECT * FROM `allanbatista.openimages.training` ORDER BY RAND() LIMIT 100";
+        String sql = "SELECT * FROM `allanbatista.openimages.training` ORDER BY RAND()";
         PCollection<Record> records =
                 p.apply("Read Records from BigQuery", BigQueryIO.readTableRows().fromQuery(sql).usingStandardSql())
                     .apply("TableRow To Record", MapElements.via(
                             new SimpleFunction<TableRow, Record>() {
                                 public Record apply(TableRow row){
-                                    return new Record((String) row.get("label"), (String) row.get("path"));
+                                    return new Record(row);
                                 }
                             }
                     ))
                     .apply("Read Images", ParDo.of(new ReadImageFn()))
-                    .apply("Resize Images", ParDo.of(new ResizeAndCropImageFn(options.getImageSize())));
+                    .apply("Resize Images", ParDo.of(new ResizeAndCropImageFn(options.getImageSize(), options.getImageResizeType())));
 
         // split dataset
         PCollectionTuple datasets = records
@@ -172,15 +184,6 @@ public class Main {
                 .apply("Convert Test Records to WebDataset Format", ParDo.of(new Record2WebDataset()))
                 .apply("Write Test Records to WebDataset Files",
                         new WebDataset.Writer(testPath).withNumShards(options.getTestShards()));
-
-//        input.apply(MapElements.via(
-//            new SimpleFunction<Record, Record>() {
-//                public Record apply(Record row){
-//                    System.out.println(row);
-//                    return row;
-//                }
-//            }
-//        ));
 
         p.run().waitUntilFinish();
     }

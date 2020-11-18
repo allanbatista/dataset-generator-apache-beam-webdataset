@@ -1,5 +1,6 @@
 package br.com.allanbatista.dataset_generator;
 
+import com.google.api.services.bigquery.model.TableRow;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 
@@ -24,9 +25,10 @@ public class Record implements Serializable {
         }
     }
 
-    public Record(String label, String path) {
-        this.label = label;
-        this.path = path;
+    public Record(TableRow row) {
+        this.label = (String) row.get("label");
+        this.path = (String) row.get("path");
+        this.labelIndex = (Long) row.get("label_index");
     }
 
     public Record(Record record){

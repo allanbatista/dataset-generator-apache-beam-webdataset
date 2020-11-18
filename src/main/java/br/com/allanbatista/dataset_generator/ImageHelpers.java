@@ -4,10 +4,7 @@ import javax.imageio.ImageIO;
 import javax.imageio.ImageReader;
 import java.awt.*;
 import java.awt.image.BufferedImage;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
+import java.io.*;
 import java.util.Iterator;
 
 public class ImageHelpers {
@@ -38,30 +35,61 @@ public class ImageHelpers {
     public static byte[] resize(byte[] byteArrayImage, int width, int height) throws Exception {
         try {
             BufferedImage inputImage = byteArrayToBufferedImage(byteArrayImage);
+            BufferedImage outputImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
 
-            int baseWidth = inputImage.getWidth();
-            int baseHeight = inputImage.getWidth();
+            Graphics2D g = outputImage.createGraphics();
+            g.setPaint(Color.BLACK);
+            g.fillRect(0, 0, width, height);
 
-            if(baseWidth > baseHeight) {
-                int x = ( baseWidth - baseHeight ) / 2;
-                inputImage = inputImage.getSubimage(x, 0, baseHeight+x, baseHeight);
-            } else if (baseWidth > baseHeight) {
-                int y = ( baseHeight - baseWidth ) / 2;
-                inputImage = inputImage.getSubimage(0, y, baseWidth, baseWidth+y);
+            int tempWidth;
+            int tempHeight;
+            int y = 0;
+            int x = 0;
+
+            if (inputImage.getHeight() < inputImage.getWidth()) {
+                tempWidth = width;
+                tempHeight = (int)(((double)inputImage.getHeight()*width)/inputImage.getWidth());
+                y = -(tempHeight - tempWidth)/2;
+            }
+            else {
+                tempHeight = height;
+                tempWidth = (int)(((double)inputImage.getWidth()*height)/inputImage.getHeight());
+                x = -(tempWidth - tempHeight)/2;
             }
 
-            // creates output image
-            BufferedImage outputImage = new BufferedImage(width, height, inputImage.getType());
+            g.drawImage(inputImage.getScaledInstance(tempWidth, tempHeight, java.awt.Image.SCALE_SMOOTH), x, y, null);
 
-            // scales the input image to the output image
-            Graphics2D g2d = outputImage.createGraphics();
-            g2d.drawImage(inputImage, 0, 0, width, height, null);
-            g2d.dispose();
+            g.dispose();
 
             return bufferedImageToByteArray(outputImage);
         } catch (Exception e) {
             throw new ImageResizeException("IMAGE_RESIZE_EXCEPTION", e);
         }
+    }
+
+    public static byte[] resizeCrop(byte[] byteArrayImage, int width, int height) throws Exception {
+        BufferedImage inputImage = byteArrayToBufferedImage(byteArrayImage);
+
+        int baseWidth = inputImage.getWidth();
+        int baseHeight = inputImage.getHeight();
+
+        if(baseWidth > baseHeight) {
+            int x = ( baseWidth - baseHeight ) / 2;
+            inputImage = inputImage.getSubimage(x, 0, baseHeight, baseHeight);
+        } else if (baseWidth < baseHeight) {
+            int y = ( baseHeight - baseWidth ) / 2;
+            inputImage = inputImage.getSubimage(0, y, baseWidth, baseWidth);
+        }
+
+        // creates output image
+        BufferedImage outputImage = new BufferedImage(width, height, inputImage.getType());
+
+        // scales the input image to the output image
+        Graphics2D g2d = outputImage.createGraphics();
+        g2d.drawImage(inputImage, 0, 0, width, height, null);
+        g2d.dispose();
+
+        return bufferedImageToByteArray(outputImage);
     }
 
     public static BufferedImage byteArrayToBufferedImage(byte[] byteArray) throws IOException {
@@ -107,5 +135,12 @@ public class ImageHelpers {
         } catch (Exception e) {
             throw new ImageEncodeException("IMAGE_ENCODE_EXCEPTION", e);
         }
+    }
+
+    public static Image read_image(String path) throws IOException {
+        BufferedImage image = ImageIO.read(new File(path));
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        ImageIO.write(image, "jpg", bos);
+        return new Image(bos.toByteArray(), "jpg");
     }
 }
