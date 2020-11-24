@@ -32,6 +32,11 @@ public class Main {
         String getOutputDir();
         void setOutputDir(String outputPath);
 
+        @Description("Limit of record of query")
+        @Default.Integer(0)
+        Integer getLimit();
+        void setLimit(Integer limit);
+
         @Description("Test Proportion")
         @Default.Double(0.1)
         Double getTestProportion();
@@ -66,6 +71,11 @@ public class Main {
         @Default.String("black")
         String getImageResizeType();
         void setImageResizeType(String imageResizeType);
+
+        @Description("Single Dataset")
+        @Default.Boolean(false)
+        Boolean getSingleDataset();
+        void setSingleDataset(Boolean singleDataset);
     }
 
     public static class ResizeAndCropImageFn extends DoFn<Record, Record> {
@@ -81,14 +91,19 @@ public class Main {
         public void processElement(@Element Record record, OutputReceiver<Record> out) throws Exception {
             Record result = new Record(record);
 
-            if(resizeType.equals("center-crop")) {
-                result.image = result.image.resizeCrop(size, size);
-            } else {
-                result.image = result.image.resize(size, size);
-            }
+            try {
+                if (resizeType.equals("center-crop")) {
+                    result.image = result.image.resizeCrop(size, size);
+                } else {
+                    result.image = result.image.resize(size, size);
+                }
 
-            result.image = result.image.encodeToJPEG();
-            out.output(result);
+                result.image = result.image.encodeToJPEG();
+                out.output(result);
+            } catch (ImageHelpers.ImageResizeException e) {
+                System.out.println(record.toString());
+                e.printStackTrace();
+            }
         }
     }
 
@@ -104,6 +119,9 @@ public class Main {
                 stream = Channels.newInputStream(io);
                 result.image = new Image(IOUtils.toByteArray(stream), "jpeg");
                 out.output(result);
+            } catch (Exception e) {
+                System.out.println(record.toString());
+                e.printStackTrace();
             } finally {
                 if(stream != null) { stream.close(); }
                 if(io != null) { io.close(); }
@@ -135,55 +153,66 @@ public class Main {
         }
     }
 
-    public static void main(String[] args) throws IOException {
-        Random random = new Random();
+    public static class TableRow2Record extends DoFn<TableRow, Record> {
+        @ProcessElement
+        public void processElement(@Element TableRow row, OutputReceiver<Record> out) {
+            out.output(new Record(row));
+        }
+    }
+
+    public static void main(String[] args) {
         PipelineOptionsFactory.register(CustomPipelineOptions.class);
         CustomPipelineOptions options = PipelineOptionsFactory.fromArgs(args).withValidation().as(CustomPipelineOptions.class);
         Pipeline p = Pipeline.create(options);
 
-        String trainPath = options.getOutputDir() + "/train";
-        String validPath = options.getOutputDir() + "/valid";
-        String testPath = options.getOutputDir() + "/test";
-
-        System.out.println(
-            "trainPath=" + trainPath + "\n" +
-            "valPath=" + validPath + "\n" +
-            "testPath=" + testPath
-        );
-
         String sql = "SELECT * FROM `allanbatista.openimages.training` ORDER BY RAND()";
+        if ( options.getLimit() > 0 ) sql = sql + " LIMIT " + options.getLimit();
+        System.out.println("============================== Query ==============================");
+        System.out.println(sql);
+
         PCollection<Record> records =
                 p.apply("Read Records from BigQuery", BigQueryIO.readTableRows().fromQuery(sql).usingStandardSql())
-                    .apply("TableRow To Record", MapElements.via(
-                            new SimpleFunction<TableRow, Record>() {
-                                public Record apply(TableRow row){
-                                    return new Record(row);
-                                }
-                            }
-                    ))
+                    .apply("TableRow To Record", ParDo.of(new TableRow2Record()))
                     .apply("Read Images", ParDo.of(new ReadImageFn()))
                     .apply("Resize Images", ParDo.of(new ResizeAndCropImageFn(options.getImageSize(), options.getImageResizeType())));
 
-        // split dataset
-        PCollectionTuple datasets = records
-                .apply("Split into test, valid and train", ParDo.of(
-                        new SplitDataset(options.getTestProportion(), options.getValidProportion())
-                ).withOutputTags(trainTag, TupleTagList.of(testTag).and(validTag)));
+        if (options.getSingleDataset()) {
+            records.apply("Convert Records to WebDataset Format", ParDo.of(new Record2WebDataset()))
+                   .apply("Write Records to WebDataset Files",
+                            new WebDataset.Writer(options.getOutputDir()).withNumShards(options.getTrainShards()));
+        }
+        else {
+            String trainPath = options.getOutputDir() + "/train";
+            String validPath = options.getOutputDir() + "/valid";
+            String testPath = options.getOutputDir() + "/test";
 
-        datasets.get(trainTag)
-                .apply("Convert Train Records to WebDataset Format", ParDo.of(new Record2WebDataset()))
-                .apply("Write Train Records to WebDataset Files",
-                        new WebDataset.Writer(trainPath).withNumShards(options.getTrainShards()));
+            System.out.println(
+                    "trainPath=" + trainPath + "\n" +
+                    "valPath=" + validPath + "\n" +
+                    "testPath=" + testPath
+            );
 
-        datasets.get(validTag)
-                .apply("Convert Valid Records to WebDataset Format", ParDo.of(new Record2WebDataset()))
-                .apply("Write Valid Records to WebDataset Files",
-                        new WebDataset.Writer(validPath).withNumShards(options.getValidShards()));
+            // split dataset
+            PCollectionTuple datasets = records
+                    .apply("Split into test, valid and train", ParDo.of(
+                            new SplitDataset(options.getTestProportion(), options.getValidProportion())
+                    ).withOutputTags(trainTag, TupleTagList.of(testTag).and(validTag)));
 
-        datasets.get(testTag)
-                .apply("Convert Test Records to WebDataset Format", ParDo.of(new Record2WebDataset()))
-                .apply("Write Test Records to WebDataset Files",
-                        new WebDataset.Writer(testPath).withNumShards(options.getTestShards()));
+            datasets.get(trainTag)
+                    .apply("Convert Train Records to WebDataset Format", ParDo.of(new Record2WebDataset()))
+                    .apply("Write Train Records to WebDataset Files",
+                            new WebDataset.Writer(trainPath).withNumShards(options.getTrainShards()));
+
+            datasets.get(validTag)
+                    .apply("Convert Valid Records to WebDataset Format", ParDo.of(new Record2WebDataset()))
+                    .apply("Write Valid Records to WebDataset Files",
+                            new WebDataset.Writer(validPath).withNumShards(options.getValidShards()));
+
+            datasets.get(testTag)
+                    .apply("Convert Test Records to WebDataset Format", ParDo.of(new Record2WebDataset()))
+                    .apply("Write Test Records to WebDataset Files",
+                            new WebDataset.Writer(testPath).withNumShards(options.getTestShards()));
+        }
 
         p.run().waitUntilFinish();
     }

@@ -68,28 +68,32 @@ public class ImageHelpers {
     }
 
     public static byte[] resizeCrop(byte[] byteArrayImage, int width, int height) throws Exception {
-        BufferedImage inputImage = byteArrayToBufferedImage(byteArrayImage);
+        try {
+            BufferedImage inputImage = byteArrayToBufferedImage(byteArrayImage);
 
-        int baseWidth = inputImage.getWidth();
-        int baseHeight = inputImage.getHeight();
+            int baseWidth = inputImage.getWidth();
+            int baseHeight = inputImage.getHeight();
 
-        if(baseWidth > baseHeight) {
-            int x = ( baseWidth - baseHeight ) / 2;
-            inputImage = inputImage.getSubimage(x, 0, baseHeight, baseHeight);
-        } else if (baseWidth < baseHeight) {
-            int y = ( baseHeight - baseWidth ) / 2;
-            inputImage = inputImage.getSubimage(0, y, baseWidth, baseWidth);
+            if(baseWidth > baseHeight) {
+                int x = ( baseWidth - baseHeight ) / 2;
+                inputImage = inputImage.getSubimage(x, 0, baseHeight, baseHeight);
+            } else if (baseWidth < baseHeight) {
+                int y = ( baseHeight - baseWidth ) / 2;
+                inputImage = inputImage.getSubimage(0, y, baseWidth, baseWidth);
+            }
+
+            // creates output image
+            BufferedImage outputImage = new BufferedImage(width, height, inputImage.getType());
+
+            // scales the input image to the output image
+            Graphics2D g2d = outputImage.createGraphics();
+            g2d.drawImage(inputImage, 0, 0, width, height, null);
+            g2d.dispose();
+
+            return bufferedImageToByteArray(outputImage);
+        } catch (Exception e) {
+            throw new ImageResizeException("IMAGE_RESIZE_EXCEPTION", e);
         }
-
-        // creates output image
-        BufferedImage outputImage = new BufferedImage(width, height, inputImage.getType());
-
-        // scales the input image to the output image
-        Graphics2D g2d = outputImage.createGraphics();
-        g2d.drawImage(inputImage, 0, 0, width, height, null);
-        g2d.dispose();
-
-        return bufferedImageToByteArray(outputImage);
     }
 
     public static BufferedImage byteArrayToBufferedImage(byte[] byteArray) throws IOException {
