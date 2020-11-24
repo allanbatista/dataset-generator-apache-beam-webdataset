@@ -4,7 +4,7 @@ import java.io.FileOutputStream;
 
 public class Teste {
     public static void main(String[] args) throws Exception {
-        String paths[] = { "6583b1ec1966c6a6", "7db5db2dd2d1850d", "9ff162e21fcba634" };
+        String paths[] = { "6583b1ec1966c6a6", "7db5db2dd2d1850d", "9ff162e21fcba634", "7db5db2dd2d1850d-grayscale" };
 
         for(String path : paths) {
             Image image = ImageHelpers.read_image("assets/"+path+".jpg");
